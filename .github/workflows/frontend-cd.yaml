@@ -63,7 +63,6 @@ jobs:
       AWS_DEFAULT_REGION: us-east-1
       CLUSTER_NAME: cluster
       ECR_REPOSITORY: frontend
-      REACT_APP_MOVIE_API_URL: http://localhost:5000
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -94,13 +93,14 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          BACKEND_HOST=$(kubectl get svc backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-          if [ -n "$BACKEND_HOST" ]; then
-            MOVIE_API_URL="http://$BACKEND_HOST"
-          else
-            MOVIE_API_URL="${{ secrets.REACT_APP_MOVIE_API_URL || env.REACT_APP_MOVIE_API_URL }}"
+          BACKEND_HOST=$(kubectl get svc backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -z "$BACKEND_HOST" ]; then
+            echo "Waiting for backend LoadBalancer hostname..."
+            sleep 10
+            BACKEND_HOST=$(kubectl get svc backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
           fi
-          echo "Building frontend with API URL: $MOVIE_API_URL"
+          MOVIE_API_URL="http://$BACKEND_HOST"
+          echo "Building frontend with live backend API URL: $MOVIE_API_URL"
           docker build \
             --build-arg REACT_APP_MOVIE_API_URL=$MOVIE_API_URL \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
