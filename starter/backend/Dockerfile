@@ -1,5 +1,6 @@
-FROM python:3.10-alpine
+FROM python:3.10-alpine3.18
 ENV FLASK_RUN_HOST=0.0.0.0
+ENV CFLAGS="-Wno-error=incompatible-pointer-types"
 
 WORKDIR /
 RUN adduser -u 1000 -D app
