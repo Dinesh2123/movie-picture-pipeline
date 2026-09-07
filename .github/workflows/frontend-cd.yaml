@@ -80,28 +80,39 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v3
+
+      - name: Update Kubeconfig
+        env:
+          AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+        run: |
+          aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+
       - name: Build, Tag, and Push Frontend Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          BACKEND_HOST=$(kubectl get svc backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -n "$BACKEND_HOST" ]; then
+            MOVIE_API_URL="http://$BACKEND_HOST"
+          else
+            MOVIE_API_URL="${{ secrets.REACT_APP_MOVIE_API_URL || env.REACT_APP_MOVIE_API_URL }}"
+          fi
+          echo "Building frontend with API URL: $MOVIE_API_URL"
           docker build \
-            --build-arg REACT_APP_MOVIE_API_URL=$REACT_APP_MOVIE_API_URL \
+            --build-arg REACT_APP_MOVIE_API_URL=$MOVIE_API_URL \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Set up Kustomize
-        uses: imranismail/setup-kustomize@v3
-
-      - name: Update Kubeconfig & Deploy to Amazon EKS
+      - name: Deploy to Amazon EKS
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-          AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
         run: |
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
           cd k8s
           kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           kustomize build | kubectl apply -f -
